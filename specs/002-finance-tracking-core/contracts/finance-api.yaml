@@ -1,0 +1,544 @@
+openapi: 3.1.0
+info:
+  title: Finance Tracker API - Finance core (feature 002)
+  version: 1.0.0
+  description: |
+    All routes require the signed-in owner (session cookie from feature 001); state-changing requests
+    also need the Origin check and `X-CSRF-Token`. Money is a decimal STRING with exactly two decimals
+    ("150.00"). Dates are `YYYY-MM-DD`; months are `YYYY-MM`. IDs are UUIDs. Resources that belong to
+    another owner (or do not exist) return 404. Errors use the 001 envelope
+    `{"error":{"code","message"}}`; codes added here are listed under `components.schemas.ErrorCode`.
+servers:
+  - url: /api/v1
+security: [{ sessionCookie: [] }]
+
+paths:
+  /accounts:
+    get:
+      summary: List accounts with current balances and the combined balance
+      parameters:
+        - { name: include_archived, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: Accounts, newest first by creation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, combined_balance]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Account" } }
+                  combined_balance: { $ref: "#/components/schemas/Money" }
+    post:
+      summary: Create an account (idempotent when `id` is supplied)
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/AccountCreate" } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "200": { description: Same `id` and same fields already exist (retry), content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /accounts/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: One account with its balance
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Rename, or correct opening balance/date (never changes `is_archived`)
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/AccountUpdate" } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /accounts/{id}/archive:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      summary: Archive an account (history is kept)
+      responses:
+        "200": { description: Archived, content: { application/json: { schema: { $ref: "#/components/schemas/Account" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /categories:
+    get:
+      summary: List built-in categories
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [income, expense] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Category" } }
+
+  /transactions:
+    get:
+      summary: List transactions (income, expenses, transfers and linked fees), newest first by default
+      parameters:
+        - { name: start_date, in: query, schema: { type: string, format: date } }
+        - { name: end_date, in: query, schema: { type: string, format: date } }
+        - { name: type, in: query, schema: { type: string, enum: [income, expense, transfer] } }
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: account_id, in: query, description: "Matches the source or the destination account", schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: "Case-insensitive name search", schema: { type: string, maxLength: 120 } }
+        - { name: sort_by, in: query, schema: { type: string, enum: [transaction_date, amount], default: transaction_date } }
+        - { name: sort_order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: A page of transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, page_size, total]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total: { type: integer }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transactions/income:
+    post:
+      summary: Record income (idempotent when `id` is supplied)
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/IncomeCreate" } }
+      responses:
+        "201": { $ref: "#/components/responses/TransactionCreated" }
+        "200": { $ref: "#/components/responses/TransactionCreated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transactions/expenses:
+    post:
+      summary: Record an expense, optionally a payment to another person with a fee
+      description: |
+        A nonzero `fee_amount` creates exactly one linked fee expense (category Fees, same date) charged
+        to `fee_account_id` (defaults to `account_id`). The principal and the fee stay separate expenses.
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/ExpenseCreate" } }
+      responses:
+        "201": { $ref: "#/components/responses/TransactionCreated" }
+        "200": { $ref: "#/components/responses/TransactionCreated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transactions/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: One transaction (with its linked fee when it has one)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Edit an income or expense (type cannot change); fee is created, updated or removed together
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/TransactionUpdate" } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete a transaction of any type (a parent takes its fee with it)
+      description: A linked fee row cannot be deleted directly (`fee_managed_by_parent`).
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /transfers:
+    post:
+      summary: Create a transfer between two active accounts, optionally with a fee (idempotent when `id` supplied)
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/TransferCreate" } }
+      responses:
+        "201": { $ref: "#/components/responses/TransactionCreated" }
+        "200": { $ref: "#/components/responses/TransactionCreated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /transfers/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: One transfer with fee details
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Edit a transfer; its balances and linked fee are synchronized atomically
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/TransferUpdate" } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete a transfer and its linked fee
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /budgets:
+    get:
+      summary: Months with allowance and results, for comparison (default last 12 months, newest first)
+      parameters:
+        - { name: from, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+        - { name: to, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/BudgetSummary" } }
+  /budgets/{year}/{month}:
+    parameters:
+      - { name: year, in: path, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+      - { name: month, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
+    get:
+      summary: Allowance and spending summary for one month (allowance null when unset)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BudgetSummary" } } } }
+    put:
+      summary: Create or update the month's allowance (upsert)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allowance]
+              properties:
+                allowance: { $ref: "#/components/schemas/MoneyInput" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/BudgetSummary" } } } }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /dashboard/summary:
+    get:
+      summary: Headline figures for a month
+      parameters:
+        - { name: month, in: query, description: "YYYY-MM; defaults to the current month in Africa/Accra", schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/DashboardSummary" } } } }
+  /dashboard/spending-by-category:
+    get:
+      summary: Expense totals per category (fees as their own category; transfers excluded)
+      parameters:
+        - { name: month, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+        - { name: start_date, in: query, schema: { type: string, format: date } }
+        - { name: end_date, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total_expenses, items]
+                properties:
+                  total_expenses: { $ref: "#/components/schemas/Money" }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [category_id, name, amount, share_percent]
+                      properties:
+                        category_id: { type: [string, "null"], format: uuid }
+                        name: { type: string }
+                        amount: { $ref: "#/components/schemas/Money" }
+                        share_percent: { type: string, description: "Two decimals, e.g. 41.67" }
+  /dashboard/cash-flow:
+    get:
+      summary: Income versus expenses over a date range (days up to 31 days, otherwise months; empty buckets are zero)
+      parameters:
+        - { name: start_date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end_date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group_by, income, expenses, net, buckets]
+                properties:
+                  group_by: { type: string, enum: [day, month] }
+                  income: { $ref: "#/components/schemas/Money" }
+                  expenses: { $ref: "#/components/schemas/Money" }
+                  net: { $ref: "#/components/schemas/Money" }
+                  buckets:
+                    type: array
+                    items:
+                      type: object
+                      required: [period, income, expenses]
+                      properties:
+                        period: { type: string, description: "YYYY-MM-DD for day, YYYY-MM for month" }
+                        income: { $ref: "#/components/schemas/Money" }
+                        expenses: { $ref: "#/components/schemas/Money" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /dashboard/recent-transactions:
+    get:
+      summary: Latest transactions, including transfers and fees
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+  /dashboard/calendar:
+    get:
+      summary: Exact transaction totals and counts for every day in a month
+      parameters:
+        - { name: month, in: query, required: true, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+      responses:
+        "200":
+          description: Every calendar day is returned; transfer-only days have a nonzero count and zero money totals.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, days]
+                properties:
+                  month: { type: string, pattern: '^\d{4}-\d{2}$' }
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      required: [date, income, expenses, net, transaction_count]
+                      properties:
+                        date: { type: string, format: date }
+                        income: { $ref: "#/components/schemas/Money" }
+                        expenses: { $ref: "#/components/schemas/Money" }
+                        net: { $ref: "#/components/schemas/Money" }
+                        transaction_count: { type: integer, minimum: 0 }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: finance_session }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    Money:
+      type: string
+      pattern: '^-?\d{1,12}\.\d{2}$'
+      description: Decimal string, exactly two decimals (balances and remaining may be negative)
+      examples: ["150.00", "-200.00"]
+    MoneyInput:
+      type: [string, number]
+      description: At most two decimals, at most 12 integer digits; sent as a string by the app
+    AccountType: { type: string, enum: [bank, mobile_money, cash] }
+    Account:
+      type: object
+      required: [id, name, account_type, opening_balance, opening_date, is_archived, balance]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        account_type: { $ref: "#/components/schemas/AccountType" }
+        opening_balance: { $ref: "#/components/schemas/Money" }
+        opening_date: { type: string, format: date }
+        is_archived: { type: boolean }
+        balance: { $ref: "#/components/schemas/Money" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AccountCreate:
+      type: object
+      required: [name, account_type, opening_date]
+      properties:
+        id: { type: string, format: uuid, description: Client-generated, for idempotent retries }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        account_type: { $ref: "#/components/schemas/AccountType" }
+        opening_balance: { $ref: "#/components/schemas/MoneyInput" }
+        opening_date: { type: string, format: date }
+    AccountUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        opening_balance: { $ref: "#/components/schemas/MoneyInput" }
+        opening_date: { type: string, format: date }
+    Category:
+      type: object
+      required: [id, name, category_type, is_system]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        category_type: { type: string, enum: [income, expense] }
+        is_system: { type: boolean }
+    AccountRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    FeeRef:
+      type: object
+      required: [id, amount, account]
+      properties:
+        id: { type: string, format: uuid }
+        amount: { $ref: "#/components/schemas/Money" }
+        account: { $ref: "#/components/schemas/AccountRef" }
+    Transaction:
+      type: object
+      required: [id, type, name, amount, transaction_date, account, version, is_fee]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [income, expense, transfer] }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        amount: { $ref: "#/components/schemas/Money" }
+        transaction_date: { type: string, format: date }
+        account: { $ref: "#/components/schemas/AccountRef" }
+        destination_account: { oneOf: [{ $ref: "#/components/schemas/AccountRef" }, { type: "null" }] }
+        category: { oneOf: [{ $ref: "#/components/schemas/Category" }, { type: "null" }] }
+        fee_amount: { $ref: "#/components/schemas/Money" }
+        fee: { oneOf: [{ $ref: "#/components/schemas/FeeRef" }, { type: "null" }], description: "Linked fee expense of a parent" }
+        is_fee: { type: boolean, description: "True when this row is itself a linked fee expense" }
+        related_transaction_id: { type: [string, "null"], format: uuid, description: "Parent id when is_fee" }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    IncomeCreate:
+      type: object
+      required: [name, amount, transaction_date, account_id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 500 }
+        amount: { $ref: "#/components/schemas/MoneyInput" }
+        transaction_date: { type: string, format: date }
+        account_id: { type: string, format: uuid }
+        category_id: { type: [string, "null"], format: uuid }
+    ExpenseCreate:
+      type: object
+      required: [name, amount, transaction_date, account_id, category_id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 500 }
+        amount: { $ref: "#/components/schemas/MoneyInput" }
+        transaction_date: { type: string, format: date }
+        account_id: { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        fee_amount: { $ref: "#/components/schemas/MoneyInput" }
+        fee_account_id: { type: string, format: uuid, description: Defaults to account_id }
+    TransactionUpdate:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer, description: Value from the last read; mismatch returns 409 stale_version }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 500 }
+        amount: { $ref: "#/components/schemas/MoneyInput" }
+        transaction_date: { type: string, format: date }
+        account_id: { type: string, format: uuid }
+        category_id: { type: [string, "null"], format: uuid }
+        fee_amount: { $ref: "#/components/schemas/MoneyInput" }
+        fee_account_id: { type: string, format: uuid }
+    TransferCreate:
+      type: object
+      required: [name, amount, transaction_date, source_account_id, destination_account_id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 500 }
+        amount: { $ref: "#/components/schemas/MoneyInput" }
+        transaction_date: { type: string, format: date }
+        source_account_id: { type: string, format: uuid }
+        destination_account_id: { type: string, format: uuid }
+        fee_amount: { $ref: "#/components/schemas/MoneyInput" }
+        fee_account_id: { type: string, format: uuid, description: "Source or destination; defaults to source" }
+    TransferUpdate:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 500 }
+        amount: { $ref: "#/components/schemas/MoneyInput" }
+        transaction_date: { type: string, format: date }
+        source_account_id: { type: string, format: uuid }
+        destination_account_id: { type: string, format: uuid }
+        fee_amount: { $ref: "#/components/schemas/MoneyInput" }
+        fee_account_id: { type: string, format: uuid }
+    BudgetSummary:
+      type: object
+      required: [month, allowance, total_expenses, remaining, percentage_used]
+      properties:
+        month: { type: string, examples: ["2026-10"] }
+        allowance: { oneOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }] }
+        total_expenses: { $ref: "#/components/schemas/Money" }
+        remaining: { oneOf: [{ $ref: "#/components/schemas/Money" }, { type: "null" }], description: "allowance - total_expenses; may be negative; null when no allowance is set" }
+        percentage_used: { type: [string, "null"], description: "Two decimals; null (N/A) when allowance is zero or unset" }
+        is_over_budget: { type: boolean }
+    DashboardSummary:
+      type: object
+      required: [month, currency, total_income, total_expenses, fee_total, net_cash_flow, budget, combined_balance, accounts]
+      properties:
+        month: { type: string }
+        currency: { type: string, const: GHS }
+        total_income: { $ref: "#/components/schemas/Money" }
+        total_expenses: { $ref: "#/components/schemas/Money" }
+        fee_total: { $ref: "#/components/schemas/Money", description: Subset of total_expenses }
+        net_cash_flow: { $ref: "#/components/schemas/Money" }
+        budget: { $ref: "#/components/schemas/BudgetSummary" }
+        combined_balance: { $ref: "#/components/schemas/Money" }
+        accounts: { type: array, items: { $ref: "#/components/schemas/Account" } }
+    ErrorCode:
+      type: string
+      enum:
+        - validation_error
+        - not_found
+        - id_conflict
+        - stale_version
+        - account_archived
+        - before_opening_date
+        - same_account
+        - fee_managed_by_parent
+        - category_type_mismatch
+        - type_immutable
+        - activity_before_opening_date
+  responses:
+    NotFound:
+      description: Missing, or not the owner's
+      content: { application/json: { schema: { type: object, properties: { error: { type: object, properties: { code: { const: not_found }, message: { type: string } } } } } } }
+    ValidationError:
+      description: Malformed input or a violated business rule (`error.code` says which)
+      content: { application/json: { schema: { type: object, properties: { error: { type: object, properties: { code: { $ref: "#/components/schemas/ErrorCode" }, message: { type: string } } } } } } }
+    Conflict:
+      description: "`id_conflict`, `stale_version`, `fee_managed_by_parent` or `type_immutable`"
+      content: { application/json: { schema: { type: object, properties: { error: { type: object, properties: { code: { $ref: "#/components/schemas/ErrorCode" }, message: { type: string } } } } } } }
+    TransactionCreated:
+      description: The created (or already existing, on retry) parent transaction with its linked fee
+      content: { application/json: { schema: { $ref: "#/components/schemas/Transaction" } } }

@@ -1,0 +1,223 @@
+openapi: 3.1.0
+info:
+  title: Finance Tracker API - Authentication (increment 001)
+  version: 1.0.0
+  description: |
+    Owner-only authentication. There is no registration. Optional email password reset uses
+    short-lived, one-time opaque tokens and enumeration-resistant responses.
+    Authenticated requests carry the `finance_session` HTTP-only cookie.
+    State-changing requests (POST/PUT/PATCH/DELETE) must come from the configured frontend origin
+    (`Origin` header) and, once signed in, carry `X-CSRF-Token`.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Health check (no authentication, no sensitive data)
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service and database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+        "503":
+          description: Database unreachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: unavailable }
+  /auth/login:
+    post:
+      summary: Authenticate the owner and start a session
+      operationId: login
+      description: |
+        Succeeds only for the configured owner email with the correct password and an active
+        account. Wrong email and wrong password return an identical 401. Throttled sources receive
+        429 before any password check.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Signed in. Sets the `finance_session` cookie.
+          headers:
+            Set-Cookie:
+              description: "finance_session=<opaque>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=<absolute lifetime>"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/InvalidCredentials" }
+        "403": { $ref: "#/components/responses/OriginNotAllowed" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyAttempts" }
+  /auth/logout:
+    post:
+      summary: End the current session
+      operationId: logout
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: Session revoked and cookie cleared
+          headers:
+            Set-Cookie:
+              description: Clears `finance_session`
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/CsrfFailed" }
+  /auth/forgot-password:
+    post:
+      summary: Request an owner password-reset email
+      operationId: forgotPassword
+      description: Always returns the same response, whether the email exists, delivery fails, or the request is throttled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordRequest" }
+      responses:
+        "202":
+          description: Request accepted without revealing account or delivery state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetAccepted" }
+        "403": { $ref: "#/components/responses/OriginNotAllowed" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /auth/reset-password:
+    post:
+      summary: Replace the owner password with a one-time reset token
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordRequest" }
+      responses:
+        "204":
+          description: Password changed, token consumed, and all sessions revoked atomically
+        "400":
+          description: Token is invalid, expired, or already used
+        "403": { $ref: "#/components/responses/OriginNotAllowed" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /auth/me:
+    get:
+      summary: Current owner profile and CSRF token
+      operationId: getMe
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Valid session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: finance_session
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: Value returned as `csrf_token` by login or /auth/me.
+      schema: { type: string }
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 320, description: "Normalized server-side (trim, lowercase)" }
+        password: { type: string, minLength: 1, maxLength: 1024 }
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, maxLength: 320 }
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 1024 }
+        password: { type: string, minLength: 7, maxLength: 1024 }
+    ResetAccepted:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    Session:
+      type: object
+      required: [user, csrf_token, expires_at]
+      properties:
+        user:
+          type: object
+          required: [id, email]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string }
+        csrf_token: { type: string }
+        expires_at: { type: string, format: date-time, description: "Absolute session expiry" }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_credentials, unauthenticated, csrf_failed, origin_not_allowed, validation_error, too_many_attempts]
+            message: { type: string }
+  responses:
+    InvalidCredentials:
+      description: Wrong email, wrong password, inactive account or non-owner email (always identical)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: invalid_credentials, message: "Invalid email or password." } }
+    Unauthenticated:
+      description: Missing, invalid, revoked or expired session
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: unauthenticated, message: "Please sign in." } }
+    CsrfFailed:
+      description: Missing or wrong X-CSRF-Token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    OriginNotAllowed:
+      description: Origin/Referer does not match the configured frontend origin
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Malformed or empty fields
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyAttempts:
+      description: Source or account is throttled
+      headers:
+        Retry-After:
+          description: Seconds until another attempt is allowed
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: too_many_attempts, message: "Too many attempts. Try again later." } }
