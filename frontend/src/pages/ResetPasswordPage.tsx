@@ -69,7 +69,7 @@ export function ResetPasswordPage() {
     <main className="login-page">
       <form className="login-card" onSubmit={handleSubmit(onSubmit)} noValidate>
         <h1>Choose a new password</h1>
-        <p className="muted">Use at least 7 characters.</p>
+        <p className="muted">Use at least 10 characters.</p>
         <PasswordField
           label="New password"
           autoComplete="new-password"

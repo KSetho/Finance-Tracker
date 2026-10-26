@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from app.core.config import Settings
@@ -52,6 +54,16 @@ def test_disabled_provider_returns_a_fail_closed_sender():
     assert isinstance(sender, DisabledPasswordResetSender)
     with pytest.raises(RuntimeError, match="disabled"):
         sender.send_password_reset("owner@example.com", "https://example/reset", 30)
+    with pytest.raises(RuntimeError, match="disabled"):
+        sender.send_data_wipe_code("owner@example.com", "123456", 10)
+    with pytest.raises(RuntimeError, match="disabled"):
+        sender.send_transaction_csv_report(
+            "owner@example.com",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            csv_bytes=b"date\n",
+            filename="transactions_2026-01-01_to_2026-01-31.csv",
+        )
 
 
 def test_brevo_selector_uses_relay_starttls_and_smtp_key(monkeypatch):
@@ -78,4 +90,39 @@ def test_brevo_selector_uses_relay_starttls_and_smtp_key(monkeypatch):
     assert smtp.started_tls is True
     assert smtp.login_args == ("brevo-login", "brevo-smtp-key")
     assert smtp.message["From"] == "verified@example.com"
+
+
+def test_data_wipe_email_includes_code(monkeypatch):
+    FakeSmtp.instances.clear()
+    monkeypatch.setattr("app.core.email.smtplib.SMTP", FakeSmtp)
+    sender = make_password_reset_sender(
+        settings(email_provider="smtp", smtp_from_email="verified@example.com")
+    )
+    sender.send_data_wipe_code("owner@example.com", "654321", 10)
+    smtp = FakeSmtp.instances[0]
+    body = smtp.message.get_content()
+    assert "654321" in body
+    assert "Confirm Finance Tracker data wipe" == smtp.message["Subject"]
+
+
+def test_transaction_csv_report_attaches_file(monkeypatch):
+    FakeSmtp.instances.clear()
+    monkeypatch.setattr("app.core.email.smtplib.SMTP", FakeSmtp)
+    sender = make_password_reset_sender(
+        settings(email_provider="smtp", smtp_from_email="verified@example.com")
+    )
+    csv_bytes = b"\xef\xbb\xbfdate,type\n2026-10-01,expense\n"
+    sender.send_transaction_csv_report(
+        "owner@example.com",
+        start_date=date(2026, 10, 1),
+        end_date=date(2026, 10, 31),
+        csv_bytes=csv_bytes,
+        filename="transactions_2026-10-01_to_2026-10-31.csv",
+    )
+    smtp = FakeSmtp.instances[0]
+    assert "2026-10-01 to 2026-10-31" in smtp.message["Subject"]
+    attachments = list(smtp.message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "transactions_2026-10-01_to_2026-10-31.csv"
+    assert attachments[0].get_payload(decode=True) == csv_bytes
     assert smtp.message["To"] == "owner@example.com"

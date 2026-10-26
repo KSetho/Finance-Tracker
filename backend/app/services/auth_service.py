@@ -141,7 +141,7 @@ def session_response_payload(context: AuthContext, settings: Settings) -> dict:
     }
 
 
-MIN_PASSWORD_LENGTH = 7
+MIN_PASSWORD_LENGTH = 10
 
 
 class OwnerAdminError(Exception):

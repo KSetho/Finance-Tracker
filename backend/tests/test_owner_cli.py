@@ -106,12 +106,12 @@ def test_provision_refuses_email_that_is_not_owner_email(run, db):
 def test_provision_refuses_short_passwords(run, db, password):
     code, _, err = run(["provision-owner", "--email", OWNER_EMAIL, "--password-stdin"], password)
     assert code == 1
-    assert "at least 7 characters" in err
+    assert "at least 10 characters" in err
     assert users(db) == []
 
 
-def test_provision_accepts_seven_character_password(run, db):
-    code, _, err = run(["provision-owner", "--email", OWNER_EMAIL, "--password-stdin"], "1234567")
+def test_provision_accepts_ten_character_password(run, db):
+    code, _, err = run(["provision-owner", "--email", OWNER_EMAIL, "--password-stdin"], "1234567890")
     assert code == 0
     assert err == ""
     assert len(users(db)) == 1
@@ -181,7 +181,7 @@ def test_reset_refuses_short_password_and_changes_nothing(run, make_owner, db):
     before = users(db)[0].password_hash
     code, _, err = run(["reset-owner-password", "--password-stdin"], "short")
     assert code == 1
-    assert "at least 7 characters" in err
+    assert "at least 10 characters" in err
     assert users(db)[0].password_hash == before
 
 

@@ -78,7 +78,7 @@ def clean_db(engine: Engine) -> Iterator[None]:
         conn.execute(
             text(
                 "TRUNCATE users, sessions, login_attempts, password_reset_tokens, "
-                "accounts, categories, "
+                "data_wipe_tokens, report_requests, accounts, categories, "
                 "transactions, monthly_budgets CASCADE"
             )
         )
@@ -225,7 +225,7 @@ def allow_second_user(engine: Engine, clean_db: None) -> Iterator[None]:
         conn.execute(
             text(
                 "TRUNCATE users, sessions, login_attempts, password_reset_tokens, "
-                "accounts, categories, "
+                "data_wipe_tokens, report_requests, accounts, categories, "
                 "transactions, monthly_budgets CASCADE"
             )
         )

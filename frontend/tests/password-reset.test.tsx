@@ -95,7 +95,7 @@ describe("reset password", () => {
     );
   });
 
-  it("requires at least 7 matching characters", async () => {
+  it("requires at least 10 matching characters", async () => {
     renderPasswordRoutes("/reset-password?token=one-use-token");
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/^new password$/i), "short");
@@ -103,7 +103,7 @@ describe("reset password", () => {
     await user.click(screen.getByRole("button", { name: /^reset password$/i }));
 
     expect(
-      await screen.findByText("Password must be at least 7 characters"),
+      await screen.findByText("Password must be at least 10 characters"),
     ).toBeInTheDocument();
     expect(screen.getByText(/passwords do not match/i)).toBeInTheDocument();
   });

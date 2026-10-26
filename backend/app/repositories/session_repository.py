@@ -46,6 +46,21 @@ def revoke_all_for_user(db: DbSession, user_id: uuid.UUID, now: datetime) -> int
     return result.rowcount or 0
 
 
+def revoke_others_for_user(
+    db: DbSession, user_id: uuid.UUID, *, keep_session_id: uuid.UUID, now: datetime
+) -> int:
+    result = db.execute(
+        update(Session)
+        .where(
+            Session.user_id == user_id,
+            Session.revoked_at.is_(None),
+            Session.id != keep_session_id,
+        )
+        .values(revoked_at=now)
+    )
+    return result.rowcount or 0
+
+
 def purge_expired(db: DbSession, *, now: datetime, idle_cutoff: datetime) -> int:
     """Delete rows that can never be valid again (revoked, absolutely expired, or idle too long)."""
     result = db.execute(

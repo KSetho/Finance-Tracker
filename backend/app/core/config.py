@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     password_reset_expiry_minutes: int = Field(default=30, gt=0)
     password_reset_max_requests: int = Field(default=3, gt=0)
     password_reset_window_minutes: int = Field(default=15, gt=0)
+    data_wipe_expiry_minutes: int = Field(default=10, gt=0)
+    data_wipe_max_requests: int = Field(default=3, gt=0)
+    data_wipe_window_minutes: int = Field(default=15, gt=0)
+    data_wipe_max_attempts: int = Field(default=5, gt=0)
+    report_max_requests: int = Field(default=5, gt=0)
+    report_window_minutes: int = Field(default=15, gt=0)
     email_provider: Literal["disabled", "smtp", "brevo"] = "disabled"
     smtp_host: str = "localhost"
     smtp_port: int = Field(default=25, ge=1, le=65535)

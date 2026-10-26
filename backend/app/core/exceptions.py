@@ -95,6 +95,18 @@ class InvalidResetToken(AppError):
     message = "This password reset link is invalid or has expired."
 
 
+class InvalidWipeCode(AppError):
+    status_code = 400
+    code = "invalid_wipe_code"
+    message = "That verification code is invalid or has expired."
+
+
+class ServiceUnavailable(AppError):
+    status_code = 503
+    code = "service_unavailable"
+    message = "This action is temporarily unavailable."
+
+
 def _body(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
 

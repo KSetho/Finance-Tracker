@@ -44,7 +44,7 @@ class ForgotPasswordResponse(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=1, max_length=512)
-    password: str = Field(min_length=7, max_length=1024)
+    password: str = Field(min_length=10, max_length=1024)
 
 
 class ErrorBody(BaseModel):

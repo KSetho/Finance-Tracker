@@ -8,7 +8,9 @@ from app.api import auth as auth_api
 from app.api import budgets as budgets_api
 from app.api import categories as categories_api
 from app.api import dashboard as dashboard_api
+from app.api import data_wipe as data_wipe_api
 from app.api import health as health_api
+from app.api import reports as reports_api
 from app.api import transactions as transactions_api
 from app.api import transfers as transfers_api
 from app.core.clock import Clock, SystemClock
@@ -63,5 +65,7 @@ def create_app(
     api_router.include_router(transfers_api.router)
     api_router.include_router(budgets_api.router)
     api_router.include_router(dashboard_api.router)
+    api_router.include_router(data_wipe_api.router)
+    api_router.include_router(reports_api.router)
     app.include_router(api_router)
     return app

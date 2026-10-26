@@ -61,3 +61,5 @@ coverage/
 .claude/
 .cursor/
 *.local
+.vercel
+.env*

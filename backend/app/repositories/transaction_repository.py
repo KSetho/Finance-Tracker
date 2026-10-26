@@ -105,6 +105,25 @@ def list_page(
     return db.scalars(query).all()
 
 
+def list_all(
+    db: Session,
+    user_id: uuid.UUID,
+    filters: TransactionFilters,
+) -> Sequence[Transaction]:
+    """Every matching row, oldest date first (for exports)."""
+    query = (
+        select(Transaction)
+        .where(*_conditions(user_id, filters))
+        .order_by(
+            Transaction.transaction_date.asc(),
+            Transaction.created_at.asc(),
+            Transaction.id.asc(),
+        )
+    )
+    return db.scalars(query).all()
+
+
+
 def count(db: Session, user_id: uuid.UUID, filters: TransactionFilters) -> int:
     return (
         db.scalar(

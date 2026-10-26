@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Personal Finance Tracker API (owner-only)"
 requires-python = ">=3.12"
 
+[tool.vercel]
+entrypoint = "index.py"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

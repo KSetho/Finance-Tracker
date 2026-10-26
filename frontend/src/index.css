@@ -256,6 +256,8 @@ select {
 }
 .form-actions .btn { width: 100%; }
 .kbd-open .form-actions { bottom: 0; }
+.settings-section { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.settings-section .btn { width: 100%; margin-top: 0.75rem; }
 .danger-zone { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .btn-danger-outline { color: var(--danger); border-color: #e3b0ac; width: 100%; }
 @media (min-width: 768px) {

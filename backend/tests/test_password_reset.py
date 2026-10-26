@@ -28,6 +28,12 @@ class RecordingSender:
             raise self.error
         self.messages.append((recipient, reset_url, expiry_minutes))
 
+    def send_data_wipe_code(self, recipient: str, code: str, expiry_minutes: int) -> None:
+        raise AssertionError("data wipe should not be called")
+
+    def send_transaction_csv_report(self, recipient: str, **kwargs) -> None:
+        raise AssertionError("transaction csv report should not be called")
+
 
 def install_sender(client, sender=None) -> RecordingSender:
     sender = sender or RecordingSender()
@@ -92,7 +98,7 @@ def test_reset_consumes_token_changes_password_and_revokes_sessions(client, owne
 
     response = client.post(
         RESET,
-        json={"token": token, "password": "1234567"},
+        json={"token": token, "password": "1234567890"},
     )
 
     assert response.status_code == 204
@@ -100,7 +106,7 @@ def test_reset_consumes_token_changes_password_and_revokes_sessions(client, owne
     user = db.scalar(select(User))
     reset_row = db.scalar(select(PasswordResetToken))
     session = db.scalar(select(SessionRow))
-    assert user is not None and verify_password(user.password_hash, "1234567")
+    assert user is not None and verify_password(user.password_hash, "1234567890")
     assert reset_row is not None and reset_row.consumed_at is not None
     assert session is not None and session.revoked_at is not None
     assert client.get("/api/v1/auth/me").status_code == 401
@@ -120,7 +126,7 @@ def test_expired_token_is_rejected(client, owner, clock):
     request_reset(client)
     token = raw_token(sender)
     clock.advance(minutes=30)
-    response = client.post(RESET, json={"token": token, "password": "1234567"})
+    response = client.post(RESET, json={"token": token, "password": "1234567890"})
     assert response.status_code == 400
 
 
