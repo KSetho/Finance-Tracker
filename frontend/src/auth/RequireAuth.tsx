@@ -1,14 +1,23 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, type ReactNode } from "react";
 import { ErrorBanner } from "../components/ui/ErrorBanner";
 import { LoadingScreen } from "../components/ui/LoadingScreen";
 import { useAuth, useRetrySession } from "./AuthProvider";
 
-export function RequireAuth() {
+export function RequireAuth({ children }: { children: ReactNode }) {
   const auth = useAuth();
-  const location = useLocation();
+  const pathname = usePathname();
+  const router = useRouter();
   const retry = useRetrySession();
+  const unauthenticated = auth.status === "unauthenticated";
 
-  if (auth.status === "loading") return <LoadingScreen />;
+  useEffect(() => {
+    if (unauthenticated) router.replace(`/login?from=${encodeURIComponent(pathname)}`);
+  }, [unauthenticated, pathname, router]);
+
+  if (auth.status === "loading" || unauthenticated) return <LoadingScreen />;
   if (auth.status === "error") {
     return (
       <main className="content" style={{ padding: "1.5rem 1rem" }}>
@@ -19,8 +28,5 @@ export function RequireAuth() {
       </main>
     );
   }
-  if (auth.status === "unauthenticated") {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
-  return <Outlet />;
+  return <>{children}</>;
 }

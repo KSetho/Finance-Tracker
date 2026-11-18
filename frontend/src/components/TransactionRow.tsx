@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import Link from "next/link";
 import type { Transaction } from "../api/transactions";
 import { formatDate } from "../lib/dates";
 import { formatGhs } from "../lib/money";
@@ -41,7 +41,7 @@ function meta(transaction: Transaction): string {
 
 export function TransactionRow({ transaction }: { transaction: Transaction }) {
   return (
-    <Link to={`/transactions/${transaction.id}`} className="tx-row">
+    <Link href={`/transactions/${transaction.id}`} className="tx-row">
       <span className="tx-main">
         <span className="tx-name">{displayName(transaction)}</span>
         <span className="tx-meta">{meta(transaction)}</span>

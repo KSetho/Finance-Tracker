@@ -1,0 +1,8 @@
+# Next.js
+.next/
+out/
+
+# Local env (the example stays tracked)
+.env*.local
+.env
+!.env.local.example

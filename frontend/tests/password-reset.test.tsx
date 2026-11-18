@@ -2,35 +2,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ForgotPasswordPage } from "../src/pages/ForgotPasswordPage";
-import { ResetPasswordPage } from "../src/pages/ResetPasswordPage";
+import { ForgotPasswordPage } from "../src/views/ForgotPasswordPage";
+import { ResetPasswordPage } from "../src/views/ResetPasswordPage";
+import { nav, replaceMock, setNav } from "./next-nav";
 import { server } from "./server";
 
-function LoginDestination() {
-  const location = useLocation();
-  const reset = (location.state as { passwordReset?: boolean } | null)?.passwordReset;
-  return <h1>{reset ? "Password reset login" : "Login"}</h1>;
-}
-
 function renderPasswordRoutes(path: string) {
+  setNav(path);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const node =
+    nav.pathname === "/forgot-password" ? (
+      <ForgotPasswordPage />
+    ) : (
+      <ResetPasswordPage />
+    );
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter
-        initialEntries={[path]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
-        <Routes>
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/login" element={<LoginDestination />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>,
   );
 }
 
@@ -143,7 +133,12 @@ describe("reset password", () => {
     await user.type(screen.getByLabelText(/^confirm new password$/i), "new-password");
     await user.click(screen.getByRole("button", { name: /^reset password$/i }));
 
-    expect(await screen.findByRole("heading", { name: /password reset login/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalled();
+      const href = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
+      expect(href).toMatch(/\/login/);
+      expect(href).toMatch(/passwordReset=1/);
+    });
     expect(requestBody).toEqual({ token: "one-use-token", password: "new-password" });
     await waitFor(() => expect(storageWrite).not.toHaveBeenCalled());
   });

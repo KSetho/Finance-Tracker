@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !**/.env.example
+!**/.env.local.example
 *.pem
 *.key
 credentials.json
@@ -36,6 +37,8 @@ htmlcov/
 node_modules/
 frontend/dist/
 frontend/dist-ssr/
+frontend/.next/
+.next/
 *.tsbuildinfo
 .npm/
 .vite/

@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useLogout } from "../api/auth";
 import { useAuth } from "../auth/AuthProvider";
 import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
@@ -7,6 +10,29 @@ import { HomeIcon, ListIcon, MenuIcon, PlusIcon, WalletIcon } from "./icons";
 import { Button } from "./ui/Button";
 
 const LOGOUT_ERROR = "Could not sign out. Check your connection and try again.";
+
+type NavLinkProps = {
+  to: string;
+  end?: boolean;
+  className: string;
+  children: ReactNode;
+  "aria-label"?: string;
+};
+
+function NavLink({ to, end = false, className, children, ...rest }: NavLinkProps) {
+  const pathname = usePathname();
+  const active = pathname === to || (!end && pathname.startsWith(`${to}/`));
+  return (
+    <Link
+      href={to}
+      className={active ? `${className} active` : className}
+      aria-current={active ? "page" : undefined}
+      {...rest}
+    >
+      {children}
+    </Link>
+  );
+}
 
 function DesktopNav({ onLogout, busy }: { onLogout: () => void; busy: boolean }) {
   return (
@@ -49,11 +75,11 @@ type MobileNavProps = {
 
 function MobileNav({ email, onLogout, busy, failed, hidden }: MobileNavProps) {
   const [open, setOpen] = useState(false);
-  const location = useLocation();
+  const pathname = usePathname();
   const trigger = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {
     if (open) sheet.current?.querySelector<HTMLElement>("a, button")?.focus();
@@ -160,7 +186,7 @@ function MobileNav({ email, onLogout, busy, failed, hidden }: MobileNavProps) {
   );
 }
 
-export function Layout() {
+export function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const logout = useLogout();
   const keyboardOpen = useKeyboardOpen();
@@ -180,7 +206,7 @@ export function Layout() {
             {LOGOUT_ERROR}
           </p>
         ) : null}
-        <Outlet />
+        {children}
       </main>
       <MobileNav
         email={auth.user?.email}

@@ -3,9 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { CalendarGrid } from "../src/components/CalendarGrid";
+import { currentMonth, formatDate } from "../src/lib/dates";
 import { financeHandlers, signedIn } from "./helpers";
 import { renderApp } from "./renderApp";
 import { server } from "./server";
+
+const MONTH = currentMonth();
+const DAY = `${MONTH}-19`;
 
 describe("CalendarGrid", () => {
   it("uses a Monday-first grid and supports pointer and keyboard selection", async () => {
@@ -46,10 +50,10 @@ describe("CalendarGrid", () => {
     server.use(
       http.get("/api/v1/dashboard/calendar", () =>
         HttpResponse.json({
-          month: "2026-10",
+          month: MONTH,
           days: [
             {
-              date: "2026-10-19",
+              date: DAY,
               income: "0.00",
               expenses: "0.00",
               net: "0.00",
@@ -62,11 +66,12 @@ describe("CalendarGrid", () => {
     renderApp("/calendar");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("gridcell", { name: /19 1 transactions/i }));
-    const dialog = screen.getByRole("dialog", { name: "19 Oct 2026" });
+    const dialog = screen.getByRole("dialog", { name: formatDate(DAY) });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Add transaction" })).toHaveAttribute(
       "href",
-      "/transactions/new?date=2026-10-19",
+      `/transactions/new?date=${DAY}`,
     );
   });
 });
+
